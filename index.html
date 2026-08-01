@@ -127,6 +127,14 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .legend-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.4rem}
 .legend-item{font-size:.78rem;color:var(--text-secondary)}
 .legend-item code{font-size:.8rem;color:var(--accent);background:var(--accent-light);padding:.1rem .3rem;border-radius:3px}
+/* ===== Category Filter Pills ===== */
+.cat-filters{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:1px solid var(--border)}
+.cat-pill{padding:.45rem .9rem;border-radius:20px;border:1.5px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:.78rem;font-weight:500;transition:all var(--transition);white-space:nowrap;display:flex;align-items:center;gap:.35rem;user-select:none}
+.cat-pill:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.cat-pill.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.cat-pill .pill-count{font-size:.68rem;opacity:.7;font-weight:400}
+.cat-pill.active .pill-count{opacity:.85}
+.cat-pill.all{font-weight:600}
 </style>
 </head>
 <body>
@@ -166,6 +174,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
       <button class="btn" onclick="collapseAllCards()">📕 Collapse All</button>
     </div>
   </div>
+  <div class="cat-filters" id="catFilters"></div>
   <div id="formulaContainer"></div>
   <div class="no-results" id="noResults" style="display:none">
     <div class="icon">🔍</div>
@@ -879,27 +888,47 @@ function buildFormulas() {
   if (window.MathJax) MathJax.typesetPromise();
 }
 
-// ===== SEARCH =====
-function searchFormulas(query) {
-  const q = query.toLowerCase().trim();
+// ===== CATEGORY FILTER =====
+let activeCatFilter = -1; // -1 = all
+
+function buildCatFilters() {
+  const container = document.getElementById('catFilters');
+  const pills = [
+    { label: '📊 All', cat: -1, count: formulaData.reduce((s,c) => s + c.formulas.length, 0) },
+    ...formulaData.map((cat, i) => ({
+      label: cat.icon + ' ' + cat.cat,
+      cat: i,
+      count: cat.formulas.length
+    }))
+  ];
+  container.innerHTML = pills.map((p, i) =>
+    `<span class="cat-pill${i===0?' all active':''}" data-cat="${p.cat}" onclick="filterByCategory(${p.cat}, this)">
+      ${p.label} <span class="pill-count">(${p.count})</span>
+    </span>`
+  ).join('');
+}
+
+function filterByCategory(catIndex, el) {
+  activeCatFilter = catIndex;
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
+  else document.querySelector(`.cat-pill[data-cat="${catIndex}"]`).classList.add('active');
+
   const cards = document.querySelectorAll('.formula-card');
   const sections = document.querySelectorAll('.cat-section');
   const noResults = document.getElementById('noResults');
   const legend = document.getElementById('legend');
+  const query = document.getElementById('mainSearch').value.toLowerCase().trim();
   let anyVisible = false;
-
-  // Sync sidebar search with main search
-  if (document.activeElement === document.getElementById('sidebarSearch')) {
-    document.getElementById('mainSearch').value = query;
-  } else if (document.activeElement === document.getElementById('mainSearch')) {
-    document.getElementById('sidebarSearch').value = query;
-  }
 
   sections.forEach(s => { s.style.display = 'none'; });
 
   cards.forEach(card => {
+    const cardCat = parseInt(card.getAttribute('data-cat'));
     const searchData = card.getAttribute('data-search');
-    if (!q || searchData.includes(q)) {
+    const catMatch = catIndex === -1 || cardCat === catIndex;
+    const searchMatch = !query || searchData.includes(query);
+    if (catMatch && searchMatch) {
       card.style.display = '';
       const section = card.closest('.cat-section');
       if (section) section.style.display = '';
@@ -910,7 +939,46 @@ function searchFormulas(query) {
   });
 
   noResults.style.display = anyVisible ? 'none' : '';
-  legend.style.display = q ? 'none' : '';
+  legend.style.display = (catIndex !== -1 || query) ? 'none' : '';
+}
+
+// ===== SEARCH =====
+function searchFormulas(query) {
+  const q = query.toLowerCase().trim();
+
+  // Sync sidebar search with main search
+  if (document.activeElement === document.getElementById('sidebarSearch')) {
+    document.getElementById('mainSearch').value = query;
+  } else if (document.activeElement === document.getElementById('mainSearch')) {
+    document.getElementById('sidebarSearch').value = query;
+  }
+
+  // Delegate to category filter which also handles search
+  const cards = document.querySelectorAll('.formula-card');
+  const sections = document.querySelectorAll('.cat-section');
+  const noResults = document.getElementById('noResults');
+  const legend = document.getElementById('legend');
+  let anyVisible = false;
+
+  sections.forEach(s => { s.style.display = 'none'; });
+
+  cards.forEach(card => {
+    const cardCat = parseInt(card.getAttribute('data-cat'));
+    const searchData = card.getAttribute('data-search');
+    const catMatch = activeCatFilter === -1 || cardCat === activeCatFilter;
+    const searchMatch = !q || searchData.includes(q);
+    if (catMatch && searchMatch) {
+      card.style.display = '';
+      const section = card.closest('.cat-section');
+      if (section) section.style.display = '';
+      anyVisible = true;
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  noResults.style.display = anyVisible ? 'none' : '';
+  legend.style.display = (activeCatFilter !== -1 || q) ? 'none' : '';
 
   // Update sidebar active states
   if (q) {
@@ -937,12 +1005,16 @@ function collapseAll() {
 }
 
 function expandAllCards() {
+  activeCatFilter = -1;
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+  const allPill = document.querySelector('.cat-pill.all');
+  if (allPill) allPill.classList.add('active');
+  document.getElementById('mainSearch').value = '';
+  document.getElementById('sidebarSearch').value = '';
   document.querySelectorAll('.formula-card').forEach(c => c.style.display = '');
   document.querySelectorAll('.cat-section').forEach(s => s.style.display = '');
   document.getElementById('noResults').style.display = 'none';
   document.getElementById('legend').style.display = '';
-  document.getElementById('mainSearch').value = '';
-  document.getElementById('sidebarSearch').value = '';
 }
 
 function collapseAllCards() {
@@ -995,6 +1067,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
 
   buildSidebar();
+  buildCatFilters();
   buildFormulas();
 
   // Keyboard shortcut: Ctrl+K / Cmd+K for search
